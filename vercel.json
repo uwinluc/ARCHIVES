@@ -1,0 +1,5 @@
+{
+  "buildCommand": "cd apps/api && prisma generate && cd ../../ && turbo build",
+  "installCommand": "pnpm install",
+  "outputDirectory": "apps/api/dist"
+}
