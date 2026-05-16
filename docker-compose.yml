@@ -1,0 +1,68 @@
+version: '3.9'
+
+# GROUPE GI Archives — Infrastructure locale de développement
+#
+# Supabase gère : PostgreSQL, Auth, Storage → pas de services locaux pour ces 3.
+# Services locaux : Redis, Meilisearch, MailHog uniquement.
+#
+# Démarrer : docker compose up -d
+# Arrêter  : docker compose down
+
+networks:
+  gi-net:
+    driver: bridge
+
+volumes:
+  redis_data:
+  meilisearch_data:
+
+services:
+
+  # ── Redis 7 (cache + file de tâches BullMQ) ────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: gi-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD requis}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gi-net
+
+  # ── Meilisearch (moteur de recherche full-text) ────────────────────────────
+  meilisearch:
+    image: getmeili/meilisearch:v1.7
+    container_name: gi-meilisearch
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY requis}
+      MEILI_ENV: development
+    volumes:
+      - meilisearch_data:/meili_data
+    ports:
+      - "${MEILI_PORT:-7700}:7700"  # UI → http://localhost:7700
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--spider", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gi-net
+
+  # ── MailHog (SMTP local pour dev — emails de test) ─────────────────────────
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: gi-mailhog
+    restart: unless-stopped
+    ports:
+      - "${MAILHOG_SMTP_PORT:-1025}:1025"  # SMTP
+      - "${MAILHOG_UI_PORT:-8025}:8025"    # UI → http://localhost:8025
+    networks:
+      - gi-net

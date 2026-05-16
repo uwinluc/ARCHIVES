@@ -1,0 +1,284 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Filiale ────────────────────────────────────────────────────────────────
+
+model Filiale {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  nom       String
+  pays      String
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users           User[]
+  categories      Categorie[]
+  documents       Document[]
+  partagesEmis    PartageInterFiliale[] @relation("FilialeSrc")
+  partagesRecus   PartageInterFiliale[] @relation("FilialeDest")
+  auditLogs       AuditLog[]
+}
+
+// ── User ───────────────────────────────────────────────────────────────────
+
+model User {
+  id         String   @id @default(uuid())
+  keycloakId String   @unique // sub du JWT Supabase Auth
+  email      String   @unique
+  prenom     String
+  nom        String
+  filialeId  String?  // null = SUPER_ADMIN groupe
+  actif      Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  filiale            Filiale?              @relation(fields: [filialeId], references: [id])
+  roles              UserRole[]
+  documentsAuteur    Document[]            @relation("Auteur")
+  versions           DocumentVersion[]
+  auditLogs          AuditLog[]
+  partagesAutorises  PartageInterFiliale[] @relation("Autorisateur")
+  commentaires       Commentaire[]
+
+  @@index([filialeId])
+  @@index([keycloakId])
+}
+
+model UserRole {
+  id        String  @id @default(uuid())
+  userId    String
+  role      Role
+  filialeId String? // null = global (SUPER_ADMIN)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, filialeId])
+  @@index([userId])
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN_FILIALE
+  ARCHIVISTE
+  MANAGER
+  COLLABORATEUR
+  LECTEUR
+}
+
+// ── Categorie ──────────────────────────────────────────────────────────────
+
+model Categorie {
+  id                   String   @id @default(uuid())
+  code                 String
+  libelle              String
+  dureeConservationAns Int?     // null = illimité / permanent
+  filialeId            String?  // null = catégorie globale groupe
+  parentId             String?  // null = catégorie racine
+  actif                Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  filiale   Filiale?    @relation(fields: [filialeId], references: [id])
+  parent    Categorie?  @relation("SubCategories", fields: [parentId], references: [id])
+  children  Categorie[] @relation("SubCategories")
+  documents Document[]
+
+  @@unique([code, filialeId])
+  @@index([parentId])
+}
+
+// ── Document ───────────────────────────────────────────────────────────────
+
+model Document {
+  id               String          @id @default(uuid())
+  titre            String
+  description      String?
+  categorieId      String
+  filialeId        String
+  auteurId         String
+  statut           StatutDocument  @default(BROUILLON)
+  confidentialite  Confidentialite @default(INTERNE)
+  dateDocument     DateTime
+  dateExpiration   DateTime?
+  tags             String[]        @default([])
+  auteurExterne    String?
+  reference        String?
+  contenuOcr       String?
+  currentVersionId String?         @unique
+  deletedAt        DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  categorie      Categorie          @relation(fields: [categorieId], references: [id])
+  filiale        Filiale            @relation(fields: [filialeId], references: [id])
+  auteur         User               @relation("Auteur", fields: [auteurId], references: [id])
+  currentVersion DocumentVersion?   @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  versions       DocumentVersion[]  @relation("Versions")
+  auditLogs      AuditLog[]
+  partages       PartageInterFiliale[]
+  commentaires   Commentaire[]
+
+  @@index([filialeId])
+  @@index([statut])
+  @@index([categorieId])
+  @@index([dateExpiration])
+  @@index([filialeId, statut])
+  @@index([deletedAt])
+}
+
+enum StatutDocument {
+  BROUILLON
+  SOUMIS
+  REJETE
+  VALIDE
+  ARCHIVE
+  A_DETRUIRE
+  DETRUIT
+}
+
+enum Confidentialite {
+  PUBLIC
+  INTERNE
+  CONFIDENTIEL
+  SECRET
+}
+
+// ── DocumentVersion ────────────────────────────────────────────────────────
+
+model DocumentVersion {
+  id           String   @id @default(uuid())
+  documentId   String
+  numero       Int
+  taille       BigInt
+  mimeType     String
+  checksum     String   // SHA-256
+  storageKey   String   // chemin Supabase Storage (ex: gi-fomi/2026/01/uuid.pdf)
+  uploadedById String
+  createdAt    DateTime @default(now())
+
+  document   Document  @relation("Versions", fields: [documentId], references: [id])
+  uploadedBy User      @relation(fields: [uploadedById], references: [id])
+  currentFor Document? @relation("CurrentVersion")
+
+  @@unique([documentId, numero])
+  @@index([documentId])
+}
+
+// ── AuditLog ───────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String      @id @default(uuid())
+  action     ActionAudit
+  documentId String?
+  userId     String
+  filialeId  String
+  metadata   Json        @default("{}")
+  createdAt  DateTime    @default(now())
+
+  document Document? @relation(fields: [documentId], references: [id])
+  user     User      @relation(fields: [userId], references: [id])
+  filiale  Filiale   @relation(fields: [filialeId], references: [id])
+
+  @@index([documentId])
+  @@index([userId])
+  @@index([filialeId])
+  @@index([createdAt])
+  @@index([action])
+}
+
+enum ActionAudit {
+  CONNEXION
+  DECONNEXION
+  UPLOAD
+  LECTURE
+  TELECHARGEMENT
+  MODIFICATION_META
+  NOUVELLE_VERSION
+  SOUMISSION
+  VALIDATION
+  REJET
+  ARCHIVAGE
+  PROPOSITION_DESTRUCTION
+  VALIDATION_DESTRUCTION
+  DESTRUCTION
+  PARTAGE_CREATION
+  PARTAGE_VALIDATION
+  PARTAGE_ACCES
+  PARTAGE_REVOCATION
+  EXPORT
+  IMPERSONATION
+}
+
+// ── PartageInterFiliale ────────────────────────────────────────────────────
+
+model PartageInterFiliale {
+  id            String        @id @default(uuid())
+  documentId    String
+  filialeSrcId  String
+  filialeDestId String
+  autorisePar   String
+  statut        StatutPartage @default(EN_ATTENTE)
+  expiresAt     DateTime?
+  actif         Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  document     Document @relation(fields: [documentId], references: [id])
+  filialeSrc   Filiale  @relation("FilialeSrc", fields: [filialeSrcId], references: [id])
+  filialeDest  Filiale  @relation("FilialeDest", fields: [filialeDestId], references: [id])
+  autorisateur User     @relation("Autorisateur", fields: [autorisePar], references: [id])
+
+  @@index([documentId])
+  @@index([filialeDestId])
+  @@index([expiresAt])
+}
+
+enum StatutPartage {
+  EN_ATTENTE
+  ACCEPTE
+  REFUSE
+  EXPIRE
+  REVOQUE
+}
+
+// ── Commentaire ────────────────────────────────────────────────────────────
+
+model Commentaire {
+  id         String   @id @default(uuid())
+  documentId String
+  auteurId   String
+  contenu    String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  auteur   User     @relation(fields: [auteurId], references: [id])
+
+  @@index([documentId])
+}
+
+// ── CertificatDestruction ──────────────────────────────────────────────────
+
+model CertificatDestruction {
+  id              String   @id @default(uuid())
+  documentId      String   @unique
+  titreDocument   String
+  categorieCode   String
+  filialeId       String
+  checksumFichier String
+  dateCreation    DateTime
+  dateDestruction DateTime @default(now())
+  validateur1Id   String
+  validateur2Id   String
+  pdfStorageKey   String
+  createdAt       DateTime @default(now())
+
+  @@index([filialeId])
+}

@@ -1,0 +1,53 @@
+# Dépendances
+node_modules/
+.pnpm-store/
+
+# Build
+dist/
+build/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# Environnement — NE JAMAIS COMMITER
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Secrets & certificats
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+claude_1.md
+
+# IDE
+.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Tests
+coverage/
+
+# Prisma
+apps/api/prisma/migrations/
+
+# Upload temporaire
+uploads/
+tmp/
